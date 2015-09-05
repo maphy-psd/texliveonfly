@@ -1,7 +1,9 @@
 # texliveonfly
 Script to download TeX Live Packages "on the fly"
 
-Original written by Saitulaa Naranong
+Original written by Saitulaa Naranong 
+
+Download of the last version by Saitulaa Naranong [v1.2](https://github.com/maphy-psd/texliveonfly/archive/v1.20.zip)
 
 ##### From the original thread http://latex-community.org/forum/viewtopic.php?f=12&t=15194
 
@@ -42,5 +44,4 @@ As of the Sep 27 version, the script should be compatible with either python 2 o
 
 Any comments, suggestions, or bug reports are appreciated, and I hope you enjoy.
 
-Updates/Changelog:
-https://github.com/maphy-psd/texliveonfly/releases
+[ Updates/Changelog](https://github.com/maphy-psd/texliveonfly/releases)
