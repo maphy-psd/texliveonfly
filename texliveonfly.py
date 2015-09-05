@@ -3,6 +3,7 @@
 # default options; feel free to change!
 defaultCompiler = "pdflatex"
 defaultArguments = "-synctex=1 -interaction=nonstopmode"
+defaultSpeechSetting = "never"
 
 #
 # texliveonfly.py (formerly lualatexonfly.py) - "Downloading on the fly"
@@ -12,7 +13,7 @@ defaultArguments = "-synctex=1 -interaction=nonstopmode"
 #     to install missing packages.
 #
 #
-# Version 1.00 ; October 1, 2011
+# Version 1.10 ; October 3, 2011
 #
 # Written on Ubuntu 10.04 with TexLive 2011
 # Python 2.6+ or 3
@@ -58,7 +59,6 @@ class Sudoer(object):
 
     #NOTE: double-escaping \\ is neccessary for a slash to appear in the bash command
     # in particular, double quotations in the command need to be written \\"
-    #NOTE: This function assumes it's only called after doc is compiled; otherwise remove sys.exit
     def spawnInNewTerminal(self,  bashCommand):
         #makes sure the temp directory exists
         try:
@@ -96,11 +96,16 @@ class Sudoer(object):
             process = subprocess.Popen(['osascript'], stdin=subprocess.PIPE )
             process.communicateStr( '''do shell script "{0}" with administrator privileges'''.format(bashCommand) )
         else:
-            process = subprocess.Popen( ['gksudo', bashCommand] )
+            #raises OSError if neither exist
+            try:
+                process = subprocess.Popen( ['gksudo', bashCommand] )
+            except OSError:
+                process = subprocess.Popen( ['kdesudo', bashCommand] )
+
             process.wait()
 
     # First tries one-liner graphical/terminal sudo, then opens extended command in new terminal
-    # throws OSError if both do
+    # raises OSError if both do
     def attemptSudo(self, oneLiner, newTerminalCommand):
         try:
             self.runSudoCommand(oneLiner)
@@ -115,11 +120,12 @@ class Sudoer(object):
 
 class TLPackageManager(Sudoer):
     #raises OSError if tlmgr_name is bad
-    def __init__(self, tlmgr_name, thisTerminalOnly = False,  tempDirectory = None ):
+    def __init__(self, tlmgr_name, thisTerminalOnly = False, speechSetting = "",  tempDirectory = None ):
         self.tlmgr = tlmgr_name
-        self.installation_initialized = False   #have we checked for updates yet?
+        self._installation_initialized = False   #have we checked for updates yet?
+        self._search_performed = False       #have we tried to search yet?
 
-        #checks that tlmgr is installed, raises OSError
+        #checks that tlmgr is installed, raises OSError otherwise
         #also checks whether we need to escalate permissions, using fake remove command
         process = subprocess.Popen( [ self.tlmgr,  "remove" ], stdin=subprocess.PIPE, stdout = subprocess.PIPE,  stderr=subprocess.PIPE  )
         (tlmgr_out,  tlmgr_err) = process.communicateStr()
@@ -132,10 +138,20 @@ class TLPackageManager(Sudoer):
         else:
             Sudoer.__init__(self, thisTerminalOnly,  tempDirectory)
 
+        self._speech_setting = speechSetting.lower()
+        if self._speech_setting != "" and "never" not in self._speech_setting: #user entered nonempty value
+            try:
+                if os.name == "mac":
+                    self.speaker = subprocess.Popen(['say'], stdin=subprocess.PIPE )
+                else:
+                    self.speaker = subprocess.Popen(['espeak'], stdin=subprocess.PIPE )
+            except:
+                self.speaker = None
+
     #always call on first update; updates tlmgr and checks permissions
     def initializeInstallation(self):
-        if not self.installation_initialized:
-            self.installation_initialized = True
+        if not self._installation_initialized:
+            self._installation_initialized = True
             updateInfo = "Updating tlmgr prior to installing packages\n(this is necessary to avoid complaints from itself)."
             print( scriptName + ": " + updateInfo)
 
@@ -149,7 +165,10 @@ class TLPackageManager(Sudoer):
 
     #strictmatch requires an entire /file match in the search results
     def getSearchResults(self,  preamble, term, strictMatch):
-        print( "{0}: Searching repositories for missing {1} {2}".format(scriptName, "font" if "font" in preamble else "file",  term) )
+        self._search_performed = True
+        fontOrFile =  "font" if "font" in preamble else "file"
+        self.speak("Searching for missing {0}: {1} ".format(fontOrFile, term))
+        print( "{0}: Searching repositories for missing {1} {2}".format(scriptName, fontOrFile,  term) )
 
         process = subprocess.Popen([ self.tlmgr, "search", "--global", "--file", term], stdin=subprocess.PIPE, stdout = subprocess.PIPE, stderr=subprocess.PIPE )
         ( output ,  stderrdata ) = process.communicateStr()
@@ -170,7 +189,10 @@ class TLPackageManager(Sudoer):
         results.remove("latex")     #removes most common fake result
 
         if len(results) == 0:
+            self.speak("File not found.")
             print("{0}: No results found for {1}".format( scriptName,  term ) )
+        else:
+            self.speak("Installing.")
 
         return results
 
@@ -210,6 +232,20 @@ sudo {2}'''.format(scriptName, packagesString, basicCommand)
     def searchAndInstall(self,  searcher,  entry):
         self.installPackages(searcher(entry))
 
+    def speak(self, expression, failure = False):
+        if  "never" in self._speech_setting or  "always" not in self._speech_setting and not \
+        ("install" in self._speech_setting and self._search_performed) and not (failure and "fail" in self._speech_setting ):
+            return
+
+        if not expression.endswith("\n"):
+            expression += "\n"
+
+        try:
+            self.speaker.stdin.write(tobytesifpy3(expression))
+            self.speaker.stdin.flush()
+        except: #very tolerant of errors here, including self.speaker being None or not being declared
+            print("An error has occurred when using the speech synthesizer.")
+
 def readFromProcess(process):
     getProcessLine = lambda : frombytesifpy3(process.stdout.readline())
 
@@ -234,7 +270,13 @@ def compileTex(compiler, arguments, texDoc):
         print( "{0}: Unable to start {1}; are you sure it is installed?{2}".format(scriptName, compiler,
             "  \n\n(Or run " + scriptName + " --help for info on how to choose a different compiler.)" if compiler == defaultCompiler else "" )
             )
-        sys.exit(1)
+        exitScript(1)
+
+def exitScript(code = 0,  speaker = None):
+    if speaker != None:
+        speaker("Compilation{0}successful.".format(", un" if code != 0 else " "),  failure = code != 0 )
+
+    sys.exit(code)
 
 ### MAIN PROGRAM ###
 
@@ -244,7 +286,7 @@ if __name__ == '__main__':
         usage="\n\n\t%prog [options] file.tex\n\nUse option --help for more info.",
         description = 'This program downloads TeX Live packages "on the fly" while compiling .tex documents.  ' +
             'Some of its default options can be directly changed in {0}.  For example, the default compiler can be edited on line 4.'.format(scriptName) ,
-        version='1.00',
+        version='1.10',
         epilog = 'Copyright (C) 2011 Saitulaa Naranong.  This program comes with ABSOLUTELY NO WARRANTY; see the GNU General Public License v3 for more info.' ,
         conflict_handler='resolve'
     )
@@ -256,8 +298,10 @@ if __name__ == '__main__':
         help='arguments to pass to compiler; default is: "{0}"'.format(defaultArguments) , default=defaultArguments)
     parser.add_option('--texlive_bin', dest='texlive_bin', metavar='LOCATION',
         help='Custom location for the TeX Live bin folder', default="")
-    parser.add_option('--terminal_only', action = "store_true" , dest='terminal_only',
-        help="Forces us to assume we can run only in this terminal.  Permission escalators will appear here rather than graphically or in a new terminal.", default=False)
+    parser.add_option('--terminal_only', action = "store_true" , dest='terminal_only', default=False,
+        help="Forces us to assume we can run only in this terminal.  Permission escalators will appear here rather than graphically or in a new terminal.")
+    parser.add_option('-s',  '--speech_when' , dest='speech_setting', metavar="OPTION",  default=defaultSpeechSetting ,
+        help='Toggles speech-synthesized notifications (where supported).  OPTION can be "always", "never", "installing", "failed", or some combination.')
     parser.add_option('-f', '--fail_silently', action = "store_true" , dest='fail_silently',
         help="If tlmgr cannot be found, compile document anyway.", default=False)
 
@@ -271,11 +315,11 @@ if __name__ == '__main__':
     #initializes tlmgr, responds if the program not found
     try:
         tlmgr_path = os.path.join(options.texlive_bin, "tlmgr")
-        tlmgr = TLPackageManager( tlmgr_path ,  options.terminal_only )
+        tlmgr = TLPackageManager( tlmgr_path ,  options.terminal_only, options.speech_setting )
     except OSError:
         if options.fail_silently:
             (output, returnCode)  = compileTex( os.path.join( options.texlive_bin, options.compiler), options.arguments, texDoc)
-            sys.exit(returnCode)
+            exitScript(returnCode)
         else:
             parser.error( "{0}: It appears {1} is not installed.  {2}".format(scriptName, tlmgr_path,
                 "Are you sure you have TeX Live 2010 or later?" if tlmgr_path == "tlmgr" else "" ) )
@@ -313,7 +357,6 @@ if __name__ == '__main__':
         except OSError:
             print("\n{0}: Unable to update; all privilege escalation attempts have failed!".format(scriptName) )
             print("We've already compiled the .tex document, so there's nothing else to do.\n  Exiting..")
-            sys.exit(returnCode)
+            exitScript(returnCode,  tlmgr.speak)
 
-    sys.exit(returnCode)
-
+    exitScript(returnCode, tlmgr.speak)
