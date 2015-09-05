@@ -7,7 +7,7 @@
 #     to install missing packages.
 #
 #
-# September 24, 2011 Release
+# September 25, 2011 Release
 #
 # Written on Ubuntu 10.04 with TexLive 2011
 # Other systems may have not been tested.
@@ -61,6 +61,7 @@ def spawnInNewTerminal(bashCommand):
             #possible OS X bash implementation (needs testing)
             process = subprocess.Popen(['osascript'], stdin=subprocess.PIPE, stderr=subprocess.PIPE)
             process.communicate( '''tell application "Terminal"\nactivate\ndo script with command "{0} $EXIT"\nend tell'''.format(bashCommand) )
+            process.wait()
         else:
             process = subprocess.Popen ( ['x-terminal-emulator', '-e',  'sh -c "{0}"'.format(bashCommand) ]  )
             process.wait()
@@ -150,6 +151,14 @@ def readFromProcess(process):
 
     return (output, returnCode)
 
+def compileTex(compiler, arguments, texDoc):
+    try:
+        process = subprocess.Popen( [compiler] + shlex.split(arguments) + [texDoc], stdin=sys.stdin, stdout = subprocess.PIPE )
+        return readFromProcess(process)
+    except OSError:
+        print( "{0}: Unable to start {1}; are you sure it is installed?".format(scriptName, compiler) )
+        sys.exit(1)
+
 ### MAIN PROGRAM ###
 licenseinfo = """texliveonfly.py Copyright (C) 2011 Saitulaa Naranong
 This program comes with ABSOLUTELY NO WARRANTY;
@@ -161,15 +170,15 @@ if __name__ == '__main__':
     # Parse command line
     parser = optparse.OptionParser(
         usage="\n\n\t%prog [options] file.tex\n\nUse option --help for more info.\n\n" + licenseinfo ,
-        version='2011.24.9',
+        version='2011.25.9',
         conflict_handler='resolve'
     )
 
     parser.add_option('-h', '--help', action='help', help='print this help text and exit')
-    parser.add_option('-e', '--engine', dest='engine', metavar='ENGINE',
+    parser.add_option('-c', '--compiler', dest='compiler', metavar='COMPILER',
         help='your LaTeX compiler; defaults to lualatex', default="lualatex")
     parser.add_option('-a', '--arguments', dest='arguments', metavar='ARGS',
-        help='arguments to send to engine; default is: "{0}"'.format(defaultArgs) , default=defaultArgs)
+        help='arguments to send to compiler; default is: "{0}"'.format(defaultArgs) , default=defaultArgs)
     parser.add_option('-f', '--fail_silently', action = "store_true" , dest='fail_silently',
         help="If tlmgr cannot be found, compile document anyway.", default=False)
 
@@ -180,10 +189,13 @@ if __name__ == '__main__':
 
     texDoc = args[0]
 
-    if "not found" in subprocess.getoutput("tlmgr"):
+    #checks that tlmgr is installed, responds based on --fail_silently flag
+    try:
+        process = subprocess.Popen( ["tlmgr"] , stdout = subprocess.PIPE,  stderr=subprocess.PIPE )
+    except OSError:
         if options.fail_silently:
-            subprocess.getoutput( options.engine + ' ' + options.arguments + ' "' + texDoc + '"')
-            sys.exit(0)
+            (output, returnCode)  = compileTex(options.compiler, options.arguments, texDoc)
+            sys.exit(returnCode)
         else:
             parser.error( "{0}: It appears tlmgr is not installed.  Are you sure you have TeX Live 2010 or later?".format(scriptName) )
 
@@ -195,12 +207,7 @@ if __name__ == '__main__':
 
     #keeps running until all missing font/file errors are gone, or the same ones persist in all categories
     while not done:
-        try:
-            process = subprocess.Popen([options.engine] + shlex.split(options.arguments) + [texDoc], stdin=sys.stdin, stdout = subprocess.PIPE )
-            (output, returnCode) = readFromProcess(process)
-        except OSError:
-            print( "{0} Unable to start {1}; are you sure it is installed?".format(scriptName, options.engine) )
-            sys.exit(1)
+        (output, returnCode)  = compileTex(options.compiler, options.arguments, texDoc)
 
         #most reliable: searches for missing file
         filesSearch = re.findall(r"! LaTeX Error: File `([^`']*)' not found" , output) + re.findall(r"! I can't find file `([^`']*)'." , output)
