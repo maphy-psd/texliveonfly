@@ -339,8 +339,12 @@ if __name__ == '__main__':
 
     #initializes tlmgr, responds if the program not found
     try:
-        tlmgr_path = os.path.join(options.texlive_bin, "tlmgr")
-        (installFile,  installFont) = generateTLMGRFuncs(tlmgr_path,  installSpeaker,  generateSudoer(options.terminal_only))
+        if sys.platform.startswith('win'):
+            tlmgr_path = os.path.join(options.texlive_bin, "tlmgr.bat")
+            (installFile,  installFont) = generateTLMGRFuncs(tlmgr_path,  installSpeaker,  generateSudoer(options.terminal_only))
+        else:
+            tlmgr_path = os.path.join(options.texlive_bin, "tlmgr")
+            (installFile,  installFont) = generateTLMGRFuncs(tlmgr_path,  installSpeaker,  generateSudoer(options.terminal_only))
     except OSError:
         if options.fail_silently:
             (output, returnCode)  = compileTex()
