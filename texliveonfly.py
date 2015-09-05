@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+#!/usr/bin/env python
 
 # texliveonfly.py (formerly lualatexonfly.py) - "Downloading on the fly"
 #     (similar to miktex) for texlive.
@@ -7,9 +7,10 @@
 #     to install missing packages.
 #
 #
-# September 26, 2011 Release
+# September 27, 2011 Release
 #
 # Written on Ubuntu 10.04 with TexLive 2011
+# Python 2.6+ or 3 (might work on low as 2.4)
 # Other systems may have not been tested.
 #
 # Copyright (C) 2011 Saitulaa Naranong
@@ -29,7 +30,12 @@
 
 import re, subprocess, os, time,  optparse, sys, shlex
 
-scriptName = os.path.basename(__file__)
+scriptName = os.path.basename(__file__)     #the name of this script file
+py3 = sys.version_info[0]  >= 3
+
+#functions to support python3's usage of bytes in some places where 2 uses strings
+tobytesifpy3 = lambda s : s.encode() if py3 else s
+frombytesifpy3 = lambda b : b.decode("UTF-8") if py3 else b
 
 #sets up temp directory and paths
 tempDirectory =  os.path.join(os.getenv("HOME"), ".texliveonfly")
@@ -60,7 +66,7 @@ def spawnInNewTerminal(bashCommand):
         if os.name == "mac":
             #possible OS X bash implementation (needs testing)
             process = subprocess.Popen(['osascript'], stdin=subprocess.PIPE, stderr=subprocess.PIPE)
-            process.communicate( '''tell application "Terminal"\nactivate\ndo script with command "{0} $EXIT"\nend tell'''.format(bashCommand).encode() )
+            process.communicate( tobytesifpy3( '''tell application "Terminal"\nactivate\ndo script with command "{0} ; exit"\nend tell'''.format(bashCommand) ) )
             process.wait()
         else:
             process = subprocess.Popen ( ['x-terminal-emulator', '-e',  'sh -c "{0}"'.format(bashCommand) ]  )
@@ -85,8 +91,10 @@ def updateTLMGR():
 #strictmatch requires an entire /file match in the search results
 def getSearchResults(preamble, term, strictMatch):
     print( "{0}: Searching repositories for missing {1} {2}".format(scriptName, "font" if "font" in preamble else "file",  term) )
-    output = subprocess.getoutput("tlmgr search --global --file " + term)
-    outList = output.split("\n")
+
+    process = subprocess.Popen(["tlmgr", "search", "--global", "--file", term], stdin=subprocess.PIPE, stdout = subprocess.PIPE, stderr=subprocess.PIPE )
+    ( output ,  stderrdata ) = process.communicate()
+    outList = frombytesifpy3(output).split("\n")
 
     results = ["latex"]    #latex 'result' for removal later
 
@@ -139,11 +147,14 @@ sudo tlmgr install {0}'''.format(packagesString)
     spawnInNewTerminal(bashCommand)
 
 def readFromProcess(process):
+    getProcessLine = lambda : frombytesifpy3(process.stdout.readline())
+
     output = ""
-    for line in process.stdout:
-        line = line.decode("UTF-8")
+    line = getProcessLine()
+    while line != '':
         output += line
-        print(line, end="")
+        sys.stdout.write(line)
+        line = getProcessLine()
 
     returnCode = None
     while returnCode == None:
@@ -173,7 +184,7 @@ if __name__ == '__main__':
     # Parse command line
     parser = optparse.OptionParser(
         usage="\n\n\t%prog [options] file.tex\n\nUse option --help for more info.\n\n" + licenseinfo ,
-        version='2011.26.9',
+        version='2011.27.9',
         conflict_handler='resolve'
     )
 
