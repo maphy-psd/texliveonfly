@@ -7,7 +7,7 @@
 #     to install missing packages.
 #
 #
-# September 19, 2011 Release
+# September 24, 2011 Release
 #
 # Written on Ubuntu 10.04 with TexLive 2011
 # Other systems may have not been tested.
@@ -27,7 +27,9 @@
 # You should have received a copy of the GNU General Public License
 # along with this program; if not, see <http://www.gnu.org/copyleft/gpl.html>.
 
-import re, subprocess, os, time,  optparse, sys
+import re, subprocess, os, time,  optparse, sys, shlex
+
+scriptName = os.path.basename(__file__)
 
 #sets up temp directory and paths
 tempDirectory =  os.path.join(os.getenv("HOME"), ".texliveonfly")
@@ -37,25 +39,37 @@ lockfilePath = os.path.join(tempDirectory,  "newterminal_lock")
 try:
     os.mkdir(tempDirectory)
 except OSError:
-    print("Our temp directory " + tempDirectory +  " already exists; good.")
+    print(scriptName + ": Our temp directory " + tempDirectory +  " already exists; good.")
 
 checkedForUpdates = False   #have we checked for updates yet?
 
 #NOTE: double-escaping \\ is neccessary for a slash to appear in the bash command
+# in particular, double quotations in the command need to be written \\"
+#NOTE: This function assumes it's only called after doc is compiled; otherwise remove sys.exit(0)
 def spawnInNewTerminal(bashCommand):
     #creates lock file
     lockfile = open(lockfilePath, 'w')
-    lockfile.write("texliveonfly currently performing task in separate terminal.")
+    lockfile.write( scriptName + " currently performing task in separate terminal.")
     lockfile.close()
 
-    #adds line to remove lock at end of command
-    bashCommand += '; rm \\"' + lockfilePath + '\\"'
+    #adds intro and line to remove lock
+    bashCommand = '''echo \\"This is {0}'s 'install packages on the fly' feature.\\n{1}\\n\\";{2}; rm \\"{3}\\"'''.format(scriptName, "-"*18,  bashCommand, lockfilePath)
 
     #runs the bash command in a new terminal
-    process = subprocess.Popen (
-        ['x-terminal-emulator', '-e',  'sh -c "{0}"'.format(bashCommand) ]
-            , stdout=subprocess.PIPE )
-    process.wait()
+    try:
+        if os.name == "mac":
+            #possible OS X bash implementation (needs testing)
+            process = subprocess.Popen(['osascript'], stdin=subprocess.PIPE, stderr=subprocess.PIPE)
+            process.communicate( '''tell application "Terminal"\nactivate\ndo script with command "{0} $EXIT"\nend tell'''.format(bashCommand) )
+        else:
+            process = subprocess.Popen ( ['x-terminal-emulator', '-e',  'sh -c "{0}"'.format(bashCommand) ]  )
+            process.wait()
+    except OSError:
+        print("\n{0}: Unable to update because we can't spawn new terminal:\n  {1}".format(scriptName,
+            "osascript does not seem to be working!" if os.name == "mac" else "there is no x-terminal-emulator!" ) )
+        print("We've already compiled the .tex document, so there's nothing else to do.\n  Exiting..")
+        os.remove(lockfilePath)
+        sys.exit(returnCode)
 
     #doesn't let us proceed until the lock file has been removed by the bash command
     while os.path.exists(lockfilePath):
@@ -69,10 +83,11 @@ def updateTLMGR():
 
 #strictmatch requires an entire /file match in the search results
 def getSearchResults(preamble, term, strictMatch):
+    print( "{0}: Searching repositories for missing {1} {2}".format(scriptName, "font" if "font" in preamble else "file",  term) )
     output = subprocess.getoutput("tlmgr search --global --file " + term)
     outList = output.split("\n")
 
-    results = ["latex"]    #latex entry for removal later
+    results = ["latex"]    #latex 'result' for removal later
 
     for line in outList:
         line = line.strip()
@@ -85,6 +100,10 @@ def getSearchResults(preamble, term, strictMatch):
 
     results = list(set(results))    #removes duplicates
     results.remove("latex")     #removes most common fake result
+
+    if len(results) == 0:
+        print("No results found for " + term)
+
     return results
 
 def getFilePackage(file):
@@ -102,18 +121,34 @@ def getFontPackage(font):
 
 #string can contain more than one package
 def installPackages(packagesString):
-    updateTLMGR()  #avoids complaints about tlmgr not being updated
+    if packagesString.strip() == "":
+        return
 
     #New terminal is required: we're not guaranteed user can input sudo password into editor
     print("Attempting to install LaTex package(s): " + packagesString )
     print("A new terminal will open and you may be prompted for your sudo password.")
 
-    #bash command to download and remove lock
+    updateTLMGR()  #avoids complaints about tlmgr not being updated
+
+    #bash command to download
     bashCommand='''echo \\"Attempting to install LaTeX package(s): {0} \\"
 echo \\"(Some of them might not be real.)\\n\\"
 sudo tlmgr install {0}'''.format(packagesString)
 
     spawnInNewTerminal(bashCommand)
+
+def readFromProcess(process):
+    output = ""
+    for line in process.stdout:
+        line = line.decode("UTF-8")
+        output += line
+        print(line, end="")
+
+    returnCode = None
+    while returnCode == None:
+        returnCode = process.poll()
+
+    return (output, returnCode)
 
 ### MAIN PROGRAM ###
 licenseinfo = """texliveonfly.py Copyright (C) 2011 Saitulaa Naranong
@@ -126,32 +161,31 @@ if __name__ == '__main__':
     # Parse command line
     parser = optparse.OptionParser(
         usage="\n\n\t%prog [options] file.tex\n\nUse option --help for more info.\n\n" + licenseinfo ,
-        version='2011.20.9',
+        version='2011.24.9',
         conflict_handler='resolve'
     )
 
-    parser.add_option('-h', '--help',
-        action='help', help='print this help text and exit')
-    parser.add_option('-e', '--engine',
-        dest='engine', metavar='ENGINE', help='your LaTeX compiler; defaults to lualatex', default="lualatex")
-    parser.add_option('-a', '--arguments',
-        dest='arguments', metavar='ARGS', help='arguments to send to engine; default is: "{0}"'.format(defaultArgs) , default=defaultArgs)
-    parser.add_option('-f', '--fail_silently', action = "store_true" ,
-        dest='fail_silently', help="If tlmgr cannot be found, compile document anyway.", default=False)
+    parser.add_option('-h', '--help', action='help', help='print this help text and exit')
+    parser.add_option('-e', '--engine', dest='engine', metavar='ENGINE',
+        help='your LaTeX compiler; defaults to lualatex', default="lualatex")
+    parser.add_option('-a', '--arguments', dest='arguments', metavar='ARGS',
+        help='arguments to send to engine; default is: "{0}"'.format(defaultArgs) , default=defaultArgs)
+    parser.add_option('-f', '--fail_silently', action = "store_true" , dest='fail_silently',
+        help="If tlmgr cannot be found, compile document anyway.", default=False)
 
     (options, args) = parser.parse_args()
 
     if len(args) == 0:
-        parser.error("You must specify a .tex file to compile.")
+        parser.error( "{0}: You must specify a .tex file to compile.".format(scriptName) )
 
-    latexDocName = args[0]
+    texDoc = args[0]
 
     if "not found" in subprocess.getoutput("tlmgr"):
         if options.fail_silently:
-            subprocess.getoutput( options.engine + ' ' + options.arguments + ' "' + latexDocName + '"')
+            subprocess.getoutput( options.engine + ' ' + options.arguments + ' "' + texDoc + '"')
             sys.exit(0)
         else:
-            parser.error("It appears tlmgr is not installed.  Are you sure you have TeX Live 2010 or later?")
+            parser.error( "{0}: It appears tlmgr is not installed.  Are you sure you have TeX Live 2010 or later?".format(scriptName) )
 
     #loop constraints
     done = False
@@ -161,10 +195,16 @@ if __name__ == '__main__':
 
     #keeps running until all missing font/file errors are gone, or the same ones persist in all categories
     while not done:
-        output = subprocess.getoutput( options.engine + ' ' + options.arguments + ' "' + latexDocName + '"')
+        try:
+            process = subprocess.Popen([options.engine] + shlex.split(options.arguments) + [texDoc], stdin=sys.stdin, stdout = subprocess.PIPE )
+            (output, returnCode) = readFromProcess(process)
+        except OSError:
+            print( "{0} Unable to start {1}; are you sure it is installed?".format(scriptName, options.engine) )
+            sys.exit(1)
 
         #most reliable: searches for missing file
         filesSearch = re.findall(r"! LaTeX Error: File `([^`']*)' not found" , output) + re.findall(r"! I can't find file `([^`']*)'." , output)
+        filesSearch = [ name for name in filesSearch if name != texDoc ]  #strips our .tex doc from list of files
         #next most reliable: infers filename from font error
         fontsFileSearch = [ name + ".tfm" for name in re.findall(r"! Font \\[^=]*=([^\s]*)\s", output) ]
         #brute force search for font name in files
@@ -181,3 +221,5 @@ if __name__ == '__main__':
             previousFont = fontsSearch[0]
         else:
             done = True
+
+    sys.exit(returnCode)
