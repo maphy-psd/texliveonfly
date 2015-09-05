@@ -7,7 +7,7 @@
 #     to install missing packages.
 #
 #
-# September 25, 2011 Release
+# September 26, 2011 Release
 #
 # Written on Ubuntu 10.04 with TexLive 2011
 # Other systems may have not been tested.
@@ -45,7 +45,7 @@ checkedForUpdates = False   #have we checked for updates yet?
 
 #NOTE: double-escaping \\ is neccessary for a slash to appear in the bash command
 # in particular, double quotations in the command need to be written \\"
-#NOTE: This function assumes it's only called after doc is compiled; otherwise remove sys.exit(0)
+#NOTE: This function assumes it's only called after doc is compiled; otherwise remove sys.exit
 def spawnInNewTerminal(bashCommand):
     #creates lock file
     lockfile = open(lockfilePath, 'w')
@@ -60,7 +60,7 @@ def spawnInNewTerminal(bashCommand):
         if os.name == "mac":
             #possible OS X bash implementation (needs testing)
             process = subprocess.Popen(['osascript'], stdin=subprocess.PIPE, stderr=subprocess.PIPE)
-            process.communicate( '''tell application "Terminal"\nactivate\ndo script with command "{0} $EXIT"\nend tell'''.format(bashCommand) )
+            process.communicate( '''tell application "Terminal"\nactivate\ndo script with command "{0} $EXIT"\nend tell'''.format(bashCommand).encode() )
             process.wait()
         else:
             process = subprocess.Popen ( ['x-terminal-emulator', '-e',  'sh -c "{0}"'.format(bashCommand) ]  )
@@ -156,7 +156,9 @@ def compileTex(compiler, arguments, texDoc):
         process = subprocess.Popen( [compiler] + shlex.split(arguments) + [texDoc], stdin=sys.stdin, stdout = subprocess.PIPE )
         return readFromProcess(process)
     except OSError:
-        print( "{0}: Unable to start {1}; are you sure it is installed?".format(scriptName, compiler) )
+        print( "{0}: Unable to start {1}; are you sure it is installed?{2}".format(scriptName, compiler,
+            "  \n\n(Or run " + scriptName + " --help for info on how to choose a different compiler.)" if compiler == defaultCompiler else "" )
+            )
         sys.exit(1)
 
 ### MAIN PROGRAM ###
@@ -165,20 +167,21 @@ This program comes with ABSOLUTELY NO WARRANTY;
 See the GNU General Public License v3 for more info."""
 
 defaultArgs = "-synctex=1 -interaction=nonstopmode"
+defaultCompiler = "lualatex"
 
 if __name__ == '__main__':
     # Parse command line
     parser = optparse.OptionParser(
         usage="\n\n\t%prog [options] file.tex\n\nUse option --help for more info.\n\n" + licenseinfo ,
-        version='2011.25.9',
+        version='2011.26.9',
         conflict_handler='resolve'
     )
 
     parser.add_option('-h', '--help', action='help', help='print this help text and exit')
     parser.add_option('-c', '--compiler', dest='compiler', metavar='COMPILER',
-        help='your LaTeX compiler; defaults to lualatex', default="lualatex")
+        help='your LaTeX compiler; defaults to {0}'.format(defaultCompiler), default=defaultCompiler)
     parser.add_option('-a', '--arguments', dest='arguments', metavar='ARGS',
-        help='arguments to send to compiler; default is: "{0}"'.format(defaultArgs) , default=defaultArgs)
+        help='arguments to pass to compiler; default is: "{0}"'.format(defaultArgs) , default=defaultArgs)
     parser.add_option('-f', '--fail_silently', action = "store_true" , dest='fail_silently',
         help="If tlmgr cannot be found, compile document anyway.", default=False)
 
