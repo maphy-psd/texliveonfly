@@ -34,7 +34,7 @@ defaultSpeechSetting = "never"
 # You should have received a copy of the GNU General Public License
 # along with this program; if not, see <http://www.gnu.org/copyleft/gpl.html>.
 
-import re, subprocess, os, time,  optparse, sys, shlex
+import re, subprocess, platform, os, time,  optparse, sys, shlex
 
 scriptName = os.path.basename(__file__)     #the name of this script file
 py3 = sys.version_info[0]  >= 3
@@ -92,7 +92,7 @@ def generateSudoer(this_terminal_only = False,  tempDirectory = os.path.join(os.
         if this_terminal_only:
             process = subprocess.Popen( ['sudo'] + shlex.split(bashCommand) )
             process.wait()
-        elif os.name == "mac":
+        elif platform.system() == 'Darwin':
             process = subprocess.Popen(['osascript'], stdin=subprocess.PIPE )
             process.communicateStr( '''do shell script "{0}" with administrator privileges'''.format(bashCommand) )
         else:
@@ -132,7 +132,7 @@ def generateSpeakers(speech_setting):
         return (doNothing , doNothing)
 
     try:
-        if os.name == "mac":
+        if platform.system() == 'Darwin':
             speaker = subprocess.Popen(['say'], stdin=subprocess.PIPE )
         else:
             speaker = subprocess.Popen(['espeak'], stdin=subprocess.PIPE )
